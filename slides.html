@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Functional Programming in Rust</title>
+    <meta charset="utf-8">
+    <style>
+      @import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
+      @import url(https://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
+      @import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
+      body { font-family: 'Droid Serif', 'Helvetica'; }
+      h1, h2, h3 {
+        font-family: 'Yanone Kaffeesatz', 'Gill Sans';
+        font-weight: normal;
+      }
+      .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono', 'Consolas', 'Courier New'; }
+    </style>
+  </head>
+  <body>
+    <textarea id="source">
+
+class: center, middle
+
+# Functional Error Handling in Rust
+Chris Davenport • `twitter@davenpcm` • `github@ChristopherDavenport`
+
+
+
+---
+# Caveats
+
+- I'm terrible at Rust
+- Functional Style Is Not Superior, but different to other styles
+-
+
+---
+
+# Goals
+
+1. Definining Functional Programming
+2. Non-Functional Error Handling
+3. Simple Structures for Error Handling; Option, Either, Result
+5. Create and Improve Our Apps
+
+---
+
+# Functional Programming
+
+Computation as Mathematical Functions avoiding state change and mutable data.
+
+Rust easily allows the first, but the second is more difficult if not
+outright discouraged.
+
+Today we are going to work with problems where N <= 1, and then we can leverage
+this to N > 1
+
+---
+
+# Simple Problem
+
+```rust
+fn main() {
+    let numerator = 10;
+    let denominator = 0;
+    let x = numerator / denominator;
+    println!("x has the value {}", x);
+}
+```
+
+```
+thread 'main' panicked at 'attempt to divide by zero', <anon>:6
+```
+
+---
+
+# Solution Domains
+
+1. Deal With Error Logic Outside of Normal Program Flow
+2. Restrict Inputs(i.e. Only Non-Zero Inputs)
+3. Change the Output Structure to Conform to Problem Domain
+
+---
+# Error Based Solutions
+
+As you can see the Std Lib Uses a Similar Default Implementation.
+
+```rust
+fn my_div(numerator: f64, denominator: f64) -> f64 {
+  if denominator == 0.0 {
+    panic!("Invalid Divide By Zero")
+  } else {
+    numerator / denominator
+  }
+}
+
+fn main() {
+    let numerator = 10.0;
+    let denominator = 0.0;
+    let x = my_div(numerator, denominator);
+    println!("x has the value {}", x);
+}
+```
+
+```
+//thread 'main' panicked at 'Invalid Divide By Zero', <anon>:5
+```
+
+---
+
+# Advantages / Disadvantages
+
+### Advantages
+1. ???
+2. Don't have to worry about Errors until your program breaks?
+
+### Disadvantages
+1. Unable to Reason About the State of your Code
+2. A thread in a state of panic is not functionally transparent.
+3. You may know it can fail but that knowledge is in your mind not
+    the program.
+4. Your program will compile but error logic is hidden from compilation.
+
+```rust
+fn evil_div(numerator: f64, denominator: f64) -> f64 {
+  panic!("Because I said so!")
+}
+```
+Think before you start lying!
+
+---
+
+# Cutting Out What We Don't Have
+
+Either Some Value, or No Value. In Rust this is Option.
+
+The general goals are
+
+1. Chain Computation Managing Errors
+2. Don't deal with errors where they are not required.
+3. Extract Values.
+
+```rust
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
+pub enum Opt<T>{
+  Nothing,
+  Something(T),
+}
+```
+
+---
+
+# Get a value out
+
+```rust
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
+pub enum Opt<T>{
+  Nothing,
+  Something(T),
+}
+
+impl<T> Opt<T> {
+  pub fn uwrap_or(self, default: T) -> T {
+    match self {
+      Opt::Something(x) => x,
+      Opt::Nothing => default
+    }
+  }
+}
+```
+
+* If Opt has a value, get that value, if it does not, get another value
+that we specify.
+* This is a convergence function.
+
+---
+
+# Transform a Value
+
+```rust
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
+pub enum Opt<T>{
+  Nothing,
+  Something(T),
+}
+
+impl<T> Opt<T> {
+  pub fn uwrap_or(self, default: T) -> T {
+    match self {
+      Opt::Something(x) => x,
+      Opt::Nothing => default
+    }
+  }
+
+  pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Opt<U> {
+    match self {
+        Opt::Something(x) => Opt::Something(f(x)),
+        Opt::Nothing => Opt::Nothing,
+    }
+  }
+}
+```
+
+* Takes a closure of simple function and applies to the value to transform
+the internal type.
+* Ignores computational failure and operates on the internal type.
+
+---
+# Solving Dividing By Zero
+
+* With the above simple definition in hand we can solve problems where we don't
+care about failure.
+
+```rust
+fn my_div(numer: usize, denom: usize) -> Opt<usize> {
+  match denom {
+    0 => Opt::Nothing,
+    _ => Opt::Something(numer/denom),
+  }
+}
+
+fn render_div(numer: usize, denom: usize) -> String {
+  my_div(numer, denom)
+  .map(|x| format!("x has a value of {}", x))
+  .unwrap_or("Denominator was Zero".to_string())
+}
+
+fn main() {
+    let numerator = 10;
+    let denominator = 0;
+    println!("{}", render_div(numerator, denominator));
+}
+// Denominator was Zero
+```
+
+---
+
+# Chaining Computation
+
+```rust
+
+// In the Impl
+pub fn and_then<U, F: FnOnce(T) -> Opt<U>>(self, f: F) -> Opt<U>{
+  match self {
+      Opt::Something(x) => f(x),
+      Opt::Nothing => Opt::Nothing,
+  }
+}
+
+// Convenience Booleans
+pub fn is_nothing(&self) -> Bool {
+  match *self {
+    Opt::Nothing => true,
+    _ => false,
+  }
+}
+
+pub fn is_something(&self) -> bool { !self.is_nothing() }
+```
+
+* Allows Multiple Options to be chained into a single computation.
+* Allows Transformation of `T` from `T -> U` with any fn
+
+---
+
+# Utilizing Chained Computation
+
+```rust
+pub fn non_zero(v: &f64) -> Opt<f64> {
+  match *v {
+    0.0 => Opt::Nothing,
+    x => Opt::Something(x.clone()),
+  }
+}
+
+pub fn show_no_zero_div(numer: &f64, denom: &f64) -> String {
+  non_zero(numer)
+  .and_then(|n|
+    non_zero(denom).map(|d| format!("Value of fraction was {}", n/d))
+  )
+  .unwrap_or("Zero Value Present".to_string())
+}
+
+fn main() {
+    let numerator: f64 = 10.0;
+    let denominator1: f64 = 2.0;
+    let denominator2: f64 = 0.0;
+
+    println!("{}", show_no_zero_div(&numerator, &denominator1));
+    // Value of fraction was 5
+    println!("{}", show_no_zero_div(&numerator, &denominator2));
+    // Zero Value Present
+}
+```
+
+---
+# Advantages / Disadvantages
+
+### Drawbacks
+
+1. Loss of Information
+  * What caused the switch to option
+2. May incur a Boxing Cost
+
+### Advantages
+1. With these combinators you have the ability to transform values
+freely, and transparently represent failure
+2. Only have to deal with a single data Type, the type that you want.
+
+---
+
+# Handling Both Sides of the Coin
+
+Lets represent a value that is Either One Type or Another. For example,
+we could contain Errors themselves as data.
+
+```rust
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum Either<L, R> {
+    /// A value of type `L`.
+    Left(L),
+    /// A value of type `R`.
+    Right(R),
+}
+```
+
+As an exercise lets talk through the implementation of `map`, `and_then`, `unwrap_or`,
+`bi_map`, and `bi_and_then`
+
+---
+# Either Implementations
+
+```rust
+impl<L, R> Either<L,R> {
+    pub fn map<F, A>(self, f: F) -> Either<L, A>
+        where F: FnOnce(R) -> A
+    {
+        match self {
+            Either::Right(r) => Either::Right(f(r)),
+            Either::Left(l) => Either::Left(l),
+        }
+    }
+
+    pub fn and_then<F, A>(self, f: F) -> Either<L, A>
+        where F: FnOnce(R) -> Either<L, A>
+    {
+        match self {
+            Either::Right(r) => f(r),
+            Either::Left(l) => Either::Left(l),
+        }
+    }
+
+    pub fn unwrap_or(self, default: R) -> R {
+        match self {
+            Either::Right(r) => r,
+            _ => default,
+        }
+    }
+```
+...
+---
+# Either Implementations Cont.
+
+```rust
+    pub fn bi_map<F, A, G, B>(self, f: F, g: G) -> Either<B, A>
+        where F: FnOnce(R) -> A, G: FnOnce(L) -> B
+    {
+        match self {
+            Either::Right(r) => Either::Right(f(r)),
+            Either::Left(l) => Either::Left(g(l)),
+        }
+    }
+
+    pub fn bi_and_then<F, A, G, B>(self, f: F, g: G) -> Either<B,A>
+        where F: FnOnce(R) -> Either<B, A>, G: FnOnce(L) -> Either<B, A>
+    {
+        match self {
+            Either::Right(r) => f(r),
+            Either::Left(l) => g(l),
+        }
+    }
+}
+```
+
+---
+# Result
+
+Standard Error Handling in Rust. Lets Simplify from Rust Book.
+
+#### Panic Everywhere!
+
+```rust
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
+
+fn file_contents<P: AsRef<Path>>(file_path: P) -> String {
+    let mut file = File::open(file_path).unwrap(); // Path Does Not Exist?
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).unwrap(); // Binary Content Anyone?
+    contents.trim().to_owned()
+}
+fn main(){
+    let x = file_contents("file.txt");
+    println!("Value of x was {}", x)
+
+}
+```
+
+```
+thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value:
+Error { repr: Os { code: 2, message: "No such file or directory" } }',
+/checkout/src/libcore/result.rs:859
+```
+
+---
+# Lets Get It Functionally
+
+```rust
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
+
+fn  file_contents<P: AsRef<Path>>(file_path: P) -> Result<String, String> {
+    File::open(file_path)
+    .map_err(|e| e.to_string())
+    .and_then(|mut file| {
+              let mut contents = String::new();
+              file.read_to_string(&mut contents)
+                  .map_err(|err| err.to_string())
+                  .map(|_| contents)})
+    .map(|contents| contents.trim().to_owned())
+}
+
+fn main(){
+    match file_contents("file.txt"){
+        Ok(c) => println!("Content was {}", c),
+        Err(m) => println!("Err was {}", m),
+    }
+}
+```
+```
+Err was No such file or directory (os error 2)
+```
+**No More Unwrapping!**
+
+---
+# Building ListFiles
+
+
+
+
+
+
+
+
+
+---
+# Thanks All!
+
+</textarea>
+   <script src="remark-latest.min.js">
+   </script>
+   <script>
+     var slideshow = remark.create();
+   </script>
+ </body>
+</html>
