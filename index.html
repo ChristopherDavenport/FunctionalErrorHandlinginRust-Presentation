@@ -539,6 +539,21 @@ fn main() {
 }
 ```
 
+---
+# Under the Hood of try!
+
+```rust
+trait From<T> {
+    fn from(T) -> Self;
+}
+
+macro_rules! try {
+    ($e:expr) => (match $e {
+        Ok(val) => val,
+        Err(err) => return Err(::std::convert::From::from(err)),
+    });
+}
+```
 
 
 
