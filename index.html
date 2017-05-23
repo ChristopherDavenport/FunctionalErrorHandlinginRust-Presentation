@@ -513,7 +513,31 @@ fn folder_dir_entry<P: AsRef<Path>>(file_path: P, recursive: bool) ->
 }
 ```
 
+---
+# Iterating
 
+Non-Functional yet for more idiomatic rust. Ignores Non-Matching States.
+Much nicer syntax.
+
+```rust
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
+
+fn file_content<P: AsRef<Path>>(file_path: P) -> Result<String, String> {
+    let mut file = try!(File::open(file_path).map_err(|e| e.to_string()));
+    let mut contents = String::new();
+    try!(file.read_to_string(&mut contents).map_err(|e| e.to_string()));
+    Ok(contents.trim().to_string())
+}
+
+fn main() {
+    match file_content("foobar") {
+        Ok(n) => println!("{}", n),
+        Err(err) => println!("Error: {}", err),
+    }
+}
+```
 
 
 
